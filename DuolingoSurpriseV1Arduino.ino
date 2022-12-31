@@ -81,7 +81,7 @@ struct questionTemplate {
   String incorrectAnswer3;
 };
 
-const int nrOfQuestions = 10;
+const int nrOfQuestions = 11;
 
 questionTemplate questions[nrOfQuestions];
 questionTemplate* currentQuestion;//the current question
@@ -89,8 +89,7 @@ questionTemplate* currentQuestion;//the current question
 /* 
  * the happy owl bitmap image
  */
-static const uint8_t PROGMEM happyOwl[] = 
-{
+static const uint8_t PROGMEM happyOwl[] = {
 0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
 0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
 0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
@@ -208,11 +207,6 @@ void setup() {
   pinMode(greenLed, OUTPUT);
   pinMode(redLed, OUTPUT);
 
-  // pinMode(button1P, INPUT);
-  // pinMode(button2P, INPUT);
-  // pinMode(button3P, INPUT);
-  // pinMode(button4P, INPUT);
-
   greenLedState = LOW;
   redLedState = LOW;
 
@@ -270,86 +264,6 @@ void loop() {
     }
 
     updateLeds();
-    /*
-    tft.drawRectangle(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_WHITE);
-    tft.setFont(Terminal6x8);
-    tft.drawText(10, 10, "hello!");
-    delay(1000);
-    
-    tft.clear();
-    tft.drawText(10, 20, "clear");
-    delay(1000);
-
-    tft.drawText(10, 30, "text small");
-    tft.setBackgroundColor(COLOR_YELLOW);
-    tft.setFont(Terminal12x16);
-    tft.drawText(90, 30, "BIG", COLOR_RED);
-    tft.setBackgroundColor(COLOR_BLACK);
-    tft.setFont(Terminal6x8);
-    delay(1000);
-
-    tft.drawText(10, 40, "setBacklight off");
-    delay(500);
-    tft.setBacklight(LOW);
-    delay(500);
-    tft.setBacklight(HIGH);
-    tft.drawText(10, 50, "setBacklight on");
-    delay(1000);
-
-    tft.drawRectangle(10, 10, 110, 110, COLOR_BLUE);
-    tft.drawText(10, 60, "rectangle");
-    delay(1000);
-
-    tft.fillRectangle(20, 20, 120, 120, COLOR_RED);
-    tft.drawText(10, 70, "solidRectangle");
-    delay(1000);
-
-    tft.drawCircle(80, 80, 50, COLOR_YELLOW);
-    tft.drawText(10, 80, "circle");
-    delay(1000);
-
-    tft.fillCircle(90, 90, 30, COLOR_GREEN);
-    tft.drawText(10, 90, "solidCircle");
-    delay(1000);
-
-    tft.drawLine(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_CYAN);
-    tft.drawText(10, 100, "line");
-    delay(1000);
-
-    for (uint8_t i = 0; i < 127; i++)
-      tft.drawPixel(random(tft.maxX()), random(tft.maxY()), random(0xffff));
-    tft.drawText(10, 110, "point");
-    delay(1000);
-
-    for (uint8_t i = 0; i < 4; i++) {
-      tft.clear();
-      tft.setOrientation(i);
-      tft.drawRectangle(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_WHITE);
-      tft.drawText(10, 10, "setOrientation (" + String("0123").substring(i, i + 1) + ")");
-      tft.drawRectangle(10, 20, 50, 60, COLOR_GREEN);
-      tft.drawCircle(70, 80, 10, COLOR_BLUE);
-      tft.drawLine(30, 40, 70, 80, COLOR_YELLOW);
-      delay(1000);
-    }
-    
-    tft.setOrientation(0);
-    tft.clear();
-    tft.setFont(Terminal12x16);
-    tft.setBackgroundColor(COLOR_YELLOW);
-    tft.drawText(10, 40, "bye!", COLOR_RED);
-    tft.setBackgroundColor(COLOR_BLACK);
-    tft.setFont(Terminal6x8);
-    delay(1000);
-    
-    tft.drawText(10, 60, "off");
-    delay(1000);
-    
-    tft.setBacklight(false);
-    tft.setDisplay(false);
-    
-    while(true);
-    */
-  //}
 }
 
 /*
@@ -394,7 +308,9 @@ void questionAsked() {
   //generate question
   //->waitforAnswer
   //@TODO do the question generation logic here
-  currentQuestion = &questions[0];//give the adress of the question  
+  long randInt = random(nrOfQuestions);
+  //Serial.println(String(randInt));
+  currentQuestion = &questions[randInt];//give the adress of the question  
 
   questionNr++;
 
@@ -785,18 +701,15 @@ void nextQuestion() {
 void initQuestions() {
   questions[0] = {"Test0", "correct", "incorrect1", "incorrect2", "incorrect3"};
   questions[1] = {"Test1", "correct", "incorrect1", "incorrect2", "incorrect3"};
-  //questions[2] = {"Test2", "correct", "incorrect1", "incorrect2", "incorrect3"};
-}
-
-void drawHappyOwlImg(int x, int y, int color, int bgColor) {
-  //tft.drawBitmap(x, y, happyOwl, 80, 100, color, bgColor);
-  tft.drawRectangle(x, y + 12, x + 4, y + 100, COLOR_GREEN);
-
-}
-
-void drawHappyOwl(int x, int y, int color, int bgColor) {
-  tft.drawRectangle(x, y, x + 3 * 4, y + 4, color);
-  //tft.drawRectangle(x + 4 * 4, y, x + , uint16_t y2, uint16_t color)
+  questions[2] = {"Test2", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[3] = {"Test3", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[4] = {"Test4", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[5] = {"Test5", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[6] = {"Test6", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[7] = {"Test7", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[8] = {"Test8", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[9] = {"Test9", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[10] = {"Test10", "correct", "incorrect1", "incorrect2", "incorrect3"};
 }
 
 //toggle the green leds
