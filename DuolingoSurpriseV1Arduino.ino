@@ -2,15 +2,17 @@
 #include "TFT_22_ILI9225.h"
 #include <Servo.h>
 #include <ezButton.h>
+#include <EEPROM.h>
+#include <SPI.h>
 
-#define TFT_RST 12
-#define TFT_RS  11
-#define TFT_CS  13  // SS
-#define TFT_SDI 10  // MOSI
-#define TFT_CLK 9  // SCK
-#define TFT_LED 0   // 0 if wired to +5V directly
+const int TFT_RST = 12;
+const int TFT_RS = 11;
+const int TFT_CS = 13; // SS
+const int TFT_SDI = 10; // MOSI
+const int TFT_CLK = 9;  // SCK
+const int TFT_LED = 0;   // 0 if wired to +5V directly
 
-#define TFT_BRIGHTNESS 200 // Initial brightness of TFT backlight (optional)
+const int TFT_BRIGHTNESS = 200; // Initial brightness of TFT backlight (optional)
 
 // Use hardware SPI (faster - on Uno: 13-SCK, 12-MISO, 11-MOSI)
 TFT_22_ILI9225 tft = TFT_22_ILI9225(TFT_RST, TFT_RS, TFT_CS, TFT_SDI, TFT_CLK, TFT_LED);
@@ -19,76 +21,200 @@ TFT_22_ILI9225 tft = TFT_22_ILI9225(TFT_RST, TFT_RS, TFT_CS, TFT_SDI, TFT_CLK, T
 Servo rServo;
 Servo lServo;
 
+//keep track of time
+unsigned long greenTimer = 0;
+unsigned long redTimer = 0;
+
 //leds
-#define redLed A0
-#define greenLed A1
+const int redLed = A1;
+const int greenLed = A0;
 
 //buttons
-#define button1Pin 4
-#define button2Pin 3
-#define button3Pin 2
-#define button4Pin 7
+const int button1P = 4;
+const int button2P = 3;
+const int button3P = 2;
+const int button4P = 7;
 
 //initialize buttons
-ezButton button1(button1Pin);
-ezButton button2(button2Pin);
-ezButton button3(button3Pin);
-ezButton button4(button4Pin);
+ezButton button1(button1P);
+ezButton button2(button2P);
+ezButton button3(button3P);
+ezButton button4(button4P);
 
 
 // Variables and constants
 int greenLedState;
 int redLedState;
 
-int button1State;
-int button2State;
-int button3State;
-int button4State;
+bool displayOn = true;
 
 int button1Down;
 int button2Down;
 int button3Down;
 int button4Down;
 
-//vars
-int highScore = 0;
+const unsigned int HIGHSCORE_MEMORY_ADDR = 0; //the eeprom memory adress where the highscore is stored
+int highScore;
+int currentScore = 0;
 int currentState = 0;
 int questionNr = 1;
+int correctAnswer;
+
+//fake loop iteration variables
+int correctIter = 0;
+int incorrectIter = 0;
+
+//keep track of the printing
+//initially everything is true
+bool drawMainMenu = true;
+bool drawQuestion = true;
+bool drawCorrectAns = true;
+bool drawIncorrectAns = true;
+bool drawPlayAgain = true;
 
 //questions
-// struct questionTemplate {
-//   String sentence;
-//   String correctAnswer;
-//   String incorrectAnswer1;
-//   String incorrectAnswer2;
-//   String incorrectAnswer3;
-// };
+struct questionTemplate {
+  String sentence;
+  String correctAnswer;
+  String incorrectAnswer1;
+  String incorrectAnswer2;
+  String incorrectAnswer3;
+};
 
-#define nrOfQuestions 2
-//questionTemplate questions[nrOfQuestions];
-//questionTemplate currentQuestion;//the current question
-/*
- * Tux black/white image in 180x220 converted using Ardafruit bitmap converter
- * https://github.com/ehubin/Adafruit-GFX-Library/tree/master/Img2Code
+const int nrOfQuestions = 10;
+
+questionTemplate questions[nrOfQuestions];
+questionTemplate* currentQuestion;//the current question
+
+/* 
+ * the happy owl bitmap image
  */
+static const uint8_t PROGMEM happyOwl[] = 
+{
+0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
+0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
+0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
+0x0,0xf,0x0,0x0,0x0,0x0,0x0,0xff,0x0,0xf,
+0xf,0xf0,0xff,0xff,0xff,0xff,0xff,0x0,0xff,0xf,
+0xf,0xf0,0xff,0xff,0xff,0xff,0xff,0x0,0xff,0xf,
+0xf,0xf0,0xff,0xff,0xff,0xff,0xff,0x0,0xff,0xf,
+0xf,0xf0,0xff,0xff,0xff,0xff,0xff,0x0,0xff,0xf,
+0x0,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,
+0x0,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,
+0x0,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,
+0x0,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xff,0xff,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xff,0xff,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xff,0xff,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xff,0xff,0x0,0x0,0xf0,0xff,
+0xf0,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0x0,0xff,
+0xf0,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0x0,0xff,
+0xf0,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0x0,0xff,
+0xf0,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0x0,0xff,
+0xf0,0xff,0x0,0xff,0xf,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0xf,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0xf,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0xf,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xf0,0xf,0xf,0xf,0xf,0x0,0xf0,0xf0,0xff,
+0xf0,0xf0,0xf,0xf,0xf,0xf,0x0,0xf0,0xf0,0xff,
+0xf0,0xf0,0xf,0xf,0xf,0xf,0x0,0xf0,0xf0,0xff,
+0xf0,0xf0,0xf,0xf,0xf,0xf,0x0,0xf0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0x0,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0x0,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0x0,0xf,0xf0,0xf,0xf0,0xff,
+0xf0,0xff,0x0,0xff,0x0,0xf,0xf0,0xf,0xf0,0xff,
+0xff,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0xf,0xff,
+0xff,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0xf,0xff,
+0xff,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0xf,0xff,
+0xff,0xf,0xff,0xf0,0xff,0xf0,0xff,0xff,0xf,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xf0,0x0,0xf,0xf,0xf,0x0,0x0,0xf0,0xff,
+0xf0,0xff,0xff,0xff,0xf0,0xff,0xf,0xff,0xf0,0xff,
+0xf0,0xff,0xff,0xff,0xf0,0xff,0xf,0xff,0xf0,0xff,
+0xf0,0xff,0xff,0xff,0xf0,0xff,0xf,0xff,0xf0,0xff,
+0xf0,0xff,0xff,0xff,0xf0,0xff,0xf,0xff,0xf0,0xff,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xf0,0xff,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xf0,
+0xff,0xf,0xff,0xff,0xff,0xff,0xff,0xf,0xff,0xf0,
+0xff,0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xf0,
+0xff,0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xf0,
+0xff,0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xf0,
+0xff,0xf0,0xff,0xff,0xff,0xff,0xff,0xf0,0xff,0xf0,
+0xff,0xff,0x0,0xff,0xff,0xff,0xff,0xff,0x0,0xf0,
+0xff,0xff,0x0,0xff,0xff,0xff,0xff,0xff,0x0,0xf0,
+0xff,0xff,0x0,0xff,0xff,0xff,0xff,0xff,0x0,0xf0,
+0xff,0xff,0x0,0xff,0xff,0xff,0xff,0xff,0x0,0xf0,
+0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xff,0xff,0xf,
+0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xff,0xff,0xf,
+0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xff,0xff,0xf,
+0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xff,0xff,0xf,
+0xff,0xff,0xf0,0xff,0xf0,0x0,0x0,0x0,0xff,0xf,
+0xff,0xff,0xf0,0xff,0xf0,0x0,0x0,0x0,0xff,0xf,
+0xff,0xff,0xf0,0xff,0xf0,0x0,0x0,0x0,0xff,0xf,
+0xff,0xff,0xf0,0xff,0xf0,0x0,0x0,0x0,0xff,0xf,
+0xff,0xff,0xf0,0xf0,0xf,0xff,0xf,0xf0,0xff,0xf,
+0xff,0xff,0xf0,0xf0,0xf,0xff,0xf,0xf0,0xff,0xf,
+0xff,0xff,0xf0,0xf0,0xf,0xff,0xf,0xf0,0xff,0xf,
+0xff,0xff,0xf0,0xf0,0xf,0xff,0xf,0xf0,0xff,0xf,
+0xff,0xff,0xf0,0x0,0xf,0x0,0xff,0xff,0xf,0xf,
+0xff,0xff,0xf0,0x0,0xf,0x0,0xff,0xff,0xf,0xf,
+0xff,0xff,0xf0,0x0,0xf,0x0,0xff,0xff,0xf,0xf,
+0xff,0xff,0xf0,0x0,0xf,0x0,0xff,0xff,0xf,0xf,
+0xff,0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xf0,0xf,
+0xff,0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xf0,0xf,
+0xff,0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xf0,0xf,
+0xff,0xff,0xff,0xff,0x0,0xf,0xff,0xff,0xf0,0xf
+};
+
 
 // Setup
 void setup() {
-  //initQuestions();
+  initQuestions();
 
   rServo.attach(5);
   lServo.attach(6);
 
   tft.begin();
-  tft.setFont(Terminal6x8);
-  tft.setOrientation(1);
-  tft.fillRectangle(0, 0, tft.maxX(), tft.maxY(), COLOR_GREEN);//background
+  tft.setOrientation(3); //@TODO set to 1
+  tft.setBacklight(HIGH);
 
   pinMode(greenLed, OUTPUT);
   pinMode(redLed, OUTPUT);
 
+  // pinMode(button1P, INPUT);
+  // pinMode(button2P, INPUT);
+  // pinMode(button3P, INPUT);
+  // pinMode(button4P, INPUT);
+
   greenLedState = LOW;
-  redLedState = HIGH;
+  redLedState = LOW;
 
   //set button debounce times to 50 ms
   button1.setDebounceTime(50);
@@ -96,149 +222,134 @@ void setup() {
   button3.setDebounceTime(50);
   button4.setDebounceTime(50);
 
-  // pinMode(button1, INPUT);
-  // pinMode(button2, INPUT);
-  // pinMode(button3, INPUT);
-  // pinMode(button4, INPUT);
-
   Serial.begin(9600);
+
+  //@TODO read highscore from memory
+  //EEPROM.update(HIGHSCORE_MEMORY_ADDR, 0);
+  highScore = EEPROM.read(HIGHSCORE_MEMORY_ADDR);
 }
 
 // Loop
 void loop() {
-  //update button debounces
-  button1.loop();
-  button2.loop();
-  button3.loop();
-  button4.loop();
-  
-  //update button down states
-  button1Down = button1.getState();
-  button2Down = button2.getState(); 
-  button3Down = button3.getState();
-  button4Down = button4.getState();
 
-  // if (button1.isPressed()) {
-  //   toggleGreen();
-  // }
-  // if (button2.isPressed()) {
-  //   toggleRed();
-  // }
-  // if (button1State == HIGH) {
-  //   digitalWrite(redLed, LOW);
-  //   digitalWrite(greenLed, HIGH);
-  // } else {
-  //   digitalWrite(redLed, HIGH);
-  //   digitalWrite(greenLed, LOW);
-  // }
+  //if the display is on, do all the game stuff.
+  //if (displayOn) {
 
-  Serial.println("preloop");
-  //main loop
-  switch (currentState) {
-    case 0:
-      Serial.println("main menu");
-      mainMenu();
-      break;
-    case 1:
-      Serial.println("questionAsked");
-      questionAsked();
-      break;
-    case 2:
-      waitForAnswer();
-      break;
-    case 3:
-      questionCorrect();
-      break;
-    case 4:
-      questionIncorrect();
-      break;
-    case 5:
-      nextQuestion();
-      break;
-  }
+    //update button debounces
+    button1.loop();
+    button2.loop();
+    button3.loop();
+    button4.loop();
+    
+    //update button down states
+    button1Down = button1.getState();
+    button2Down = button2.getState(); 
+    button3Down = button3.getState();
+    button4Down = button4.getState();
 
-  Serial.println("hi");
+    //main loop
+    switch (currentState) {
+      case 0:
+        mainMenu();
+        break;
+      case 1:
+        questionAsked();
+        break;
+      case 2:
+        waitForAnswer();
+        break;
+      case 3:
+        questionCorrect();
+        break;
+      case 4:
+        questionIncorrect();
+        break;
+      case 5:
+        nextQuestion();
+        break;
+    }
 
-  updateLeds();
-  /*
-  tft.drawRectangle(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_WHITE);
-  tft.setFont(Terminal6x8);
-  tft.drawText(10, 10, "hello!");
-  delay(1000);
-  
-  tft.clear();
-  tft.drawText(10, 20, "clear");
-  delay(1000);
-
-  tft.drawText(10, 30, "text small");
-  tft.setBackgroundColor(COLOR_YELLOW);
-  tft.setFont(Terminal12x16);
-  tft.drawText(90, 30, "BIG", COLOR_RED);
-  tft.setBackgroundColor(COLOR_BLACK);
-  tft.setFont(Terminal6x8);
-  delay(1000);
-
-  tft.drawText(10, 40, "setBacklight off");
-  delay(500);
-  tft.setBacklight(LOW);
-  delay(500);
-  tft.setBacklight(HIGH);
-  tft.drawText(10, 50, "setBacklight on");
-  delay(1000);
-
-  tft.drawRectangle(10, 10, 110, 110, COLOR_BLUE);
-  tft.drawText(10, 60, "rectangle");
-  delay(1000);
-
-  tft.fillRectangle(20, 20, 120, 120, COLOR_RED);
-  tft.drawText(10, 70, "solidRectangle");
-  delay(1000);
-
-  tft.drawCircle(80, 80, 50, COLOR_YELLOW);
-  tft.drawText(10, 80, "circle");
-  delay(1000);
-
-  tft.fillCircle(90, 90, 30, COLOR_GREEN);
-  tft.drawText(10, 90, "solidCircle");
-  delay(1000);
-
-  tft.drawLine(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_CYAN);
-  tft.drawText(10, 100, "line");
-  delay(1000);
-
-  for (uint8_t i = 0; i < 127; i++)
-    tft.drawPixel(random(tft.maxX()), random(tft.maxY()), random(0xffff));
-  tft.drawText(10, 110, "point");
-  delay(1000);
-
-  for (uint8_t i = 0; i < 4; i++) {
-    tft.clear();
-    tft.setOrientation(i);
+    updateLeds();
+    /*
     tft.drawRectangle(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_WHITE);
-    tft.drawText(10, 10, "setOrientation (" + String("0123").substring(i, i + 1) + ")");
-    tft.drawRectangle(10, 20, 50, 60, COLOR_GREEN);
-    tft.drawCircle(70, 80, 10, COLOR_BLUE);
-    tft.drawLine(30, 40, 70, 80, COLOR_YELLOW);
+    tft.setFont(Terminal6x8);
+    tft.drawText(10, 10, "hello!");
     delay(1000);
-  }
-  
-  tft.setOrientation(0);
-  tft.clear();
-  tft.setFont(Terminal12x16);
-  tft.setBackgroundColor(COLOR_YELLOW);
-  tft.drawText(10, 40, "bye!", COLOR_RED);
-  tft.setBackgroundColor(COLOR_BLACK);
-  tft.setFont(Terminal6x8);
-  delay(1000);
-  
-  tft.drawText(10, 60, "off");
-  delay(1000);
-  
-  tft.setBacklight(false);
-  tft.setDisplay(false);
-  
-  while(true);
-  */
+    
+    tft.clear();
+    tft.drawText(10, 20, "clear");
+    delay(1000);
+
+    tft.drawText(10, 30, "text small");
+    tft.setBackgroundColor(COLOR_YELLOW);
+    tft.setFont(Terminal12x16);
+    tft.drawText(90, 30, "BIG", COLOR_RED);
+    tft.setBackgroundColor(COLOR_BLACK);
+    tft.setFont(Terminal6x8);
+    delay(1000);
+
+    tft.drawText(10, 40, "setBacklight off");
+    delay(500);
+    tft.setBacklight(LOW);
+    delay(500);
+    tft.setBacklight(HIGH);
+    tft.drawText(10, 50, "setBacklight on");
+    delay(1000);
+
+    tft.drawRectangle(10, 10, 110, 110, COLOR_BLUE);
+    tft.drawText(10, 60, "rectangle");
+    delay(1000);
+
+    tft.fillRectangle(20, 20, 120, 120, COLOR_RED);
+    tft.drawText(10, 70, "solidRectangle");
+    delay(1000);
+
+    tft.drawCircle(80, 80, 50, COLOR_YELLOW);
+    tft.drawText(10, 80, "circle");
+    delay(1000);
+
+    tft.fillCircle(90, 90, 30, COLOR_GREEN);
+    tft.drawText(10, 90, "solidCircle");
+    delay(1000);
+
+    tft.drawLine(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_CYAN);
+    tft.drawText(10, 100, "line");
+    delay(1000);
+
+    for (uint8_t i = 0; i < 127; i++)
+      tft.drawPixel(random(tft.maxX()), random(tft.maxY()), random(0xffff));
+    tft.drawText(10, 110, "point");
+    delay(1000);
+
+    for (uint8_t i = 0; i < 4; i++) {
+      tft.clear();
+      tft.setOrientation(i);
+      tft.drawRectangle(0, 0, tft.maxX() - 1, tft.maxY() - 1, COLOR_WHITE);
+      tft.drawText(10, 10, "setOrientation (" + String("0123").substring(i, i + 1) + ")");
+      tft.drawRectangle(10, 20, 50, 60, COLOR_GREEN);
+      tft.drawCircle(70, 80, 10, COLOR_BLUE);
+      tft.drawLine(30, 40, 70, 80, COLOR_YELLOW);
+      delay(1000);
+    }
+    
+    tft.setOrientation(0);
+    tft.clear();
+    tft.setFont(Terminal12x16);
+    tft.setBackgroundColor(COLOR_YELLOW);
+    tft.drawText(10, 40, "bye!", COLOR_RED);
+    tft.setBackgroundColor(COLOR_BLACK);
+    tft.setFont(Terminal6x8);
+    delay(1000);
+    
+    tft.drawText(10, 60, "off");
+    delay(1000);
+    
+    tft.setBacklight(false);
+    tft.setDisplay(false);
+    
+    while(true);
+    */
+  //}
 }
 
 /*
@@ -249,20 +360,29 @@ void loop() {
  */
 void mainMenu() {
   //if play -> questionAsked
-  tft.setBackgroundColor(COLOR_GREEN);
-  tft.setFont(Terminal12x16);
-  tft.drawText(70, 20, "DUOLINGO", COLOR_WHITE);
+  if (drawMainMenu) {
+    tft.fillRectangle(0, 0, tft.maxX(), tft.maxY(), COLOR_GREEN);//background
 
-  tft.setFont(Terminal6x8);
-  tft.drawText(80, 70, "High score:", COLOR_WHITE);
-  tft.drawText(110, 80, String(highScore));
+    tft.setBackgroundColor(COLOR_GREEN);
+    tft.setFont(Terminal12x16);
+    tft.drawText(70, 20, "DUOLINGO", COLOR_WHITE);
 
-  tft.drawText(5, 140, "To start a game, press any button", COLOR_BLACK);
+    tft.setFont(Terminal6x8);
+    tft.drawText(80, 70, "High score:", COLOR_WHITE);
+    tft.drawText(110, 80, String(highScore));
+
+    tft.drawText(5, 140, "To start a game, press any button", COLOR_BLACK);
+
+    questionNr = 0;//reset the counter for the questions
+
+    drawMainMenu = false;
+  }
 
   if (button1.isPressed() || button2.isPressed() || button3.isPressed() || button4.isPressed()) {
+    drawMainMenu = true;//now we can go back again if needed
     currentState = 1;
   }
-  Serial.println("out of main menu");
+  //Serial.println("out of main menu");
 }
 
 /*
@@ -273,7 +393,10 @@ void mainMenu() {
 void questionAsked() {
   //generate question
   //->waitforAnswer
-  //currentQuestion = questions[0];
+  //@TODO do the question generation logic here
+  currentQuestion = &questions[0];//give the adress of the question  
+
+  questionNr++;
 
   currentState = 2;//transition to the next state
 }
@@ -286,24 +409,245 @@ void waitForAnswer() {
   //if correct -> questionCorrect
   //if incorrect -> questionIncorrect
   //if back -> mainMenu
+  if (drawQuestion) {
+    tft.fillRectangle(0, 0, tft.maxX(), tft.maxY(), COLOR_GREEN);//background
 
-  tft.drawChar(30, 30, 'h');
-  // tft.setFont(Terminal12x16);
-  // tft.drawText(70, 20, "Question " + String(questionNr) + ":", COLOR_WHITE);
+    tft.setFont(Terminal12x16);
+    tft.drawText(50, 30, "Question " + String(questionNr) + ":", COLOR_WHITE);
 
-  // tft.setFont(Terminal6x8);
-  // tft.drawText(10, 50, currentQuestion.sentence);
+    tft.setFont(Terminal6x8);
+    tft.drawText(160, 5, "Score: " + String(currentScore), COLOR_BLACK);
+    tft.drawText(40, 70, currentQuestion->sentence, COLOR_BLACK);
 
-  // //@TODO question ordering logic
+    //draw the possible answers
+    int questionX = 50;
+    int questionY = 90;
 
-  // //draw the possible answers
-  // int questionX = 40;
-  // int questionY = 80;
-  // tft.drawText(questionX, questionY, "1> " + currentQuestion.correctAnswer);
-  // tft.drawText(questionX, questionY + 15, "2> " + currentQuestion.incorrectAnswer1);
-  // tft.drawText(questionX, questionY + 30, "3> " + currentQuestion.incorrectAnswer2);
-  // tft.drawText(questionX, questionY + 45, "4> " + currentQuestion.incorrectAnswer3);
+    //do the random questionOrdering
+    // long randInt = random(4);
+    switch (random(24)) {
+      //correct in 1
+      case 0:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+      case 1:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+      case 2:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer1);
+      break;
+      case 3:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer2);
+      break;
+      case 4:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer1);
+      break;
+      case 5:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer2);
+      break;
 
+      //correct in 2
+      case 6:
+        correctAnswer = 1;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+      case 7:
+        correctAnswer = 1;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+      case 8:
+        correctAnswer = 1;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer1);
+      break;
+      case 9:
+        correctAnswer = 1;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer2);
+      break;
+      case 10:
+        correctAnswer = 1;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer1);
+      break;
+      case 11:
+        correctAnswer = 1;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer2);
+      break;
+
+      //correct in 3
+      case 12:
+        correctAnswer = 2;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+      case 13:
+        correctAnswer = 2;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+      case 14:
+        correctAnswer = 2;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer1);
+      break;
+      case 15:
+        correctAnswer = 2;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer2);
+      break;
+      case 16:
+        correctAnswer = 2;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer1);
+      break;
+      case 17:
+        correctAnswer = 2;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer2);
+      break;
+
+      //correct in 4
+      case 18:
+        correctAnswer = 3;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->correctAnswer);
+      break;
+      case 19:
+        correctAnswer = 3;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->correctAnswer);
+      break;
+      case 20:
+        correctAnswer = 3;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->correctAnswer);
+      break;
+      case 21:
+        correctAnswer = 3;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->correctAnswer);
+      break;
+      case 22:
+        correctAnswer = 3;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->correctAnswer);
+      break;
+      case 23:
+        correctAnswer = 3;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer3);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->correctAnswer);
+      break;
+
+      default:
+        correctAnswer = 0;
+        tft.drawText(questionX, questionY, "1> " + currentQuestion->correctAnswer);
+        tft.drawText(questionX, questionY + 15, "2> " + currentQuestion->incorrectAnswer1);
+        tft.drawText(questionX, questionY + 30, "3> " + currentQuestion->incorrectAnswer2);
+        tft.drawText(questionX, questionY + 45, "4> " + currentQuestion->incorrectAnswer3);
+      break;
+    }
+    
+
+    drawQuestion = false;
+  }
+
+  //answering logic
+  if (button1.isPressed()) {
+    if (correctAnswer == 0) {
+      currentState = 3;
+    } else {
+      currentState = 4;
+    }
+    drawQuestion = true;
+  }
+  if (button2.isPressed()) {
+    if (correctAnswer == 1) {
+      currentState = 3;
+    } else {
+      currentState = 4;
+    }
+    drawQuestion = true;
+  }
+  if (button3.isPressed()) {
+    if (correctAnswer == 2) {
+      currentState = 3;
+    } else {
+      currentState = 4;
+    }
+    drawQuestion = true;
+  }
+  if (button4.isPressed()) {
+    if (correctAnswer == 3) {
+      currentState = 3;
+    } else {
+      currentState = 4;
+    }
+    drawQuestion = true;
+  }
 }
 
 /*
@@ -317,6 +661,42 @@ void questionCorrect() {
   //do the animations and stuff
   //update score
   //-> nextQuestion
+  
+  if (drawCorrectAns) {
+    tft.fillRectangle(0, 0, tft.maxX(), tft.maxY(), COLOR_GREEN);//background
+
+    tft.setFont(Terminal12x16);
+    tft.drawText(50, 20, "Congrats!", COLOR_WHITE);
+    tft.setFont(Terminal6x8);
+    tft.drawText(15, 60, "That was the correct answer :)", COLOR_WHITE);
+
+    //@TODO draw happy owl image
+    //drawHappyOwlImg(40, 80, COLOR_WHITE, COLOR_BLACK);
+    tft.drawBitmap(tft.maxX() / 2 - 40, 75, happyOwl, 80, 100, COLOR_GREEN, COLOR_BLACK);
+
+    //update the highScore and score
+    currentScore += 1;
+    if (currentScore > highScore) {
+      highScore = currentScore;
+    }
+
+    drawCorrectAns = false;
+  }
+  //set servo's?
+
+  //blink the green LED
+  //make sure to loop an even amount because elsewise it won't be in the same state at the beginning and in the end
+  if (correctIter < 16) {
+    if (millis() > greenTimer + 200) {
+      greenTimer = millis();
+      toggleGreen();
+      correctIter++;
+    }
+  } else {
+    drawCorrectAns = true;
+    currentState = 5;
+    correctIter = 0;
+  }
 }
 
 /*
@@ -328,6 +708,36 @@ void questionCorrect() {
 void questionIncorrect() {
   //do the animations
   //-> nextQuestion
+
+  if (drawIncorrectAns) {
+    tft.fillRectangle(0, 0, tft.maxX(), tft.maxY(), COLOR_GREEN);//background
+
+    tft.setFont(Terminal12x16);
+    tft.drawText(tft.maxX() / 2 - 18, 20, "Ahw", COLOR_WHITE);
+    tft.setFont(Terminal6x8);
+    tft.drawText(15, 45, "That answer was incorrect :(", COLOR_WHITE);
+    tft.drawText(5, 65, "The correct answer was: " + currentQuestion->correctAnswer);
+
+    //@TODO draw sad owl image
+    //tft.drawBitmap();
+    //tft.drawBitmap(40, 40, happyOwl, 80, 100);
+    tft.drawBitmap(tft.maxX() / 2 - 40, 80, happyOwl, 80, 100, COLOR_GREEN, COLOR_BLACK);
+    drawIncorrectAns = false;
+  }
+
+  //blink the red LED
+  //make sure to loop an even amount because elsewise it won't be in the same state at the beginning and in the end
+  if (incorrectIter < 20) {
+    if (millis() > redTimer + 150) {
+      redTimer = millis();
+      toggleRed();
+      incorrectIter++;
+    }
+  } else {
+    drawIncorrectAns = true;
+    currentState = 5;
+    incorrectIter = 0;
+  }
 }
 
 /*
@@ -338,17 +748,56 @@ void questionIncorrect() {
 void nextQuestion() {
   //if yes -> questionAsked
   //if no -> mainMenu
+  if (drawPlayAgain) {
+    tft.fillRectangle(0, 0, tft.maxX(), tft.maxY(), COLOR_GREEN);//background
+
+    tft.setFont(Terminal12x16);
+    tft.drawText(30, 20, "Play again?", COLOR_WHITE);
+    tft.setFont(Terminal6x8);
+    
+    tft.drawText(60, 110, "HighScore: " + String(highScore), COLOR_BLACK);
+    tft.drawText(60, 125, "Current score: " + String(currentScore), COLOR_BLACK);
+
+    tft.drawText(70, 65, "1> yes", COLOR_WHITE);
+    tft.drawText(70, 80, "2> no", COLOR_WHITE);
+
+    drawPlayAgain = false;
+  }
+
+  if (button1.isPressed()) {
+    drawPlayAgain = true;
+    currentState = 1;
+  }
+  if (button2.isPressed()) {
+    //EEPROM.update(HIGHSCORE_MEMORY_ADDR, highScore);//updates the permanent memory if the highscore has changed since the last write
+
+    drawPlayAgain = true;
+    currentScore = 0;
+    currentState = 0;
+  }
 }
 
 
 //////// Auxiliary methods //////////////
 
 //initialize the question array
-// void initQuestions() {
-//   questions[0] = {"Test0", "correct", "incorrect1", "incorrect2", "incorrect3"};
-//   questions[1] = {"Test1", "correct", "incorrect1", "incorrect2", "incorrect3"};
-//   questions[2] = {"Test2", "correct", "incorrect1", "incorrect2", "incorrect3"};
-// }
+//don't add more questions than there are entries in the array (nrOfQuestions)
+void initQuestions() {
+  questions[0] = {"Test0", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  questions[1] = {"Test1", "correct", "incorrect1", "incorrect2", "incorrect3"};
+  //questions[2] = {"Test2", "correct", "incorrect1", "incorrect2", "incorrect3"};
+}
+
+void drawHappyOwlImg(int x, int y, int color, int bgColor) {
+  //tft.drawBitmap(x, y, happyOwl, 80, 100, color, bgColor);
+  tft.drawRectangle(x, y + 12, x + 4, y + 100, COLOR_GREEN);
+
+}
+
+void drawHappyOwl(int x, int y, int color, int bgColor) {
+  tft.drawRectangle(x, y, x + 3 * 4, y + 4, color);
+  //tft.drawRectangle(x + 4 * 4, y, x + , uint16_t y2, uint16_t color)
+}
 
 //toggle the green leds
 void toggleGreen() {
@@ -364,15 +813,6 @@ void toggleRed() {
 void updateLeds() {
   digitalWrite(greenLed, greenLedState);
   digitalWrite(redLed, redLedState);
-}
-
-//draw the current state of the buttons
-void drawButtonStates(int x, int y) {
-  tft.drawText(x, y, String(button1State));
-  tft.drawText(x, y + 15, String(button2State));
-  tft.drawText(x, y + 30, String(button3State));
-  tft.drawText(x, y + 45, String(button4State));
-
 }
 
 //draw the buttons are currently pressed
@@ -394,5 +834,25 @@ void moveServosOpposite(int pos) {
   rServo.write(pos);
   lServo.write(180 - pos);
 }
+
+// void drawHighSpeedBitmap(uint16_t x1, uint16_t y1, uint16_t** bitmap, int16_t w, int16_t h) {
+//     _setWindow(x1, y1, x1+w-1, y1+h-1, L2R_TopDown);
+//     startWrite();
+//     SPI_DC_HIGH();
+//     SPI_CS_LOW();
+//     for (uint16_t y = 0; y < h; y++) {
+// #ifdef HSPI_WRITE_PIXELS
+//         if (_clk < 0) {
+//             HSPI_WRITE_PIXELS(bitmap[y], w * sizeof(uint16_t));
+//             continue;
+//         }
+// #endif
+//         for (uint16_t x = 0; x < w; x++) {
+//             _spiWrite16(bitmap[y][x]);
+//         }
+//     }
+//     SPI_CS_HIGH();
+//     endWrite();
+// }
 
 
